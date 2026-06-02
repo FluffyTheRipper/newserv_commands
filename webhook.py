@@ -9,6 +9,8 @@ import websocket
 import asyncio
 import websockets
 from discord_webhook import DiscordWebhook, DiscordEmbed
+from dotenv import load_dotenv
+import os
 
 http_session = requests.Session()  # Reuse HTTP session for efficiency
 retries = Retry(total=3, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
@@ -16,8 +18,10 @@ http_session.mount("http://", HTTPAdapter(max_retries=retries))
 
 
 # --- CONFIGURATION ---
-DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1509275131963375715/PDFXQQ-9cHVt_OCngNk9WtmVHrNb4ZUdhzEs9BF26-wpxD7eVpb99583VcFmXNVxLccb"
-GAME_SERVER_API = "http://192.168.1.99:8999/y"
+load_dotenv()  # Load environment variables from .env file if present
+STATUS_WEBHOOK_URL = os.getenv("STATUS_WEBHOOK_URL")
+RARE_DROPS_WEBHOOK_URL = os.getenv("RARE_DROPS_WEBHOOK_URL")
+GAME_SERVER_API = os.getenv("GAME_SERVER_API")
 
 # GET endpoints
 CLIENTS_ENDPOINT = f"{GAME_SERVER_API}/clients"
@@ -51,10 +55,10 @@ EPISODE_SHORTHAND = {
 }
 
 
-def send_to_discord(title, description, color="00ff00", fields=None):
+def send_to_discord(title, description, color="00ff00", fields=None, thumbnail=False, target_webhook=None):
     """Utility to send clean, embedded messages to Discord with automatic rate-limit retries."""
-    RARE_BOX_URL = "https://i.postimg.cc/HnQCpDnK/redbox.png"
-    webhook = DiscordWebhook(url=DISCORD_WEBHOOK_URL, rate_limit_retry=True)
+    RARE_BOX_URL = "https://raw.githubusercontent.com/FluffyTheRipper/newserv_commands/refs/heads/main/redbox.png?token=GHSAT0AAAAAAD4JNB7UQOGBXH4VRKJBMKIC2QYME3Q"
+    webhook = DiscordWebhook(url=target_webhook, rate_limit_retry=True)
     
     embed = DiscordEmbed(title=title, description=description, color=color)
     embed.set_timestamp()
@@ -63,7 +67,8 @@ def send_to_discord(title, description, color="00ff00", fields=None):
         for name, value in fields.items():
             embed.add_embed_field(name=name, value=str(value), inline=False)
 
-    embed.set_thumbnail(url=RARE_BOX_URL)
+    if thumbnail:
+        embed.set_thumbnail(url=RARE_BOX_URL)
 
     webhook.add_embed(embed)
     try:
@@ -88,10 +93,23 @@ def poll_server_status():
                 server_data = data.get("Server", {})
 
                 # server status
-                server_uptime = server_data.get("Uptime", "Offline")
+                server_uptime_us = server_data.get("UptimeUsecs", 0)
                 game_count = server_data.get("GameCount", 0)
                 client_count = server_data.get("ClientCount", 0)
                 
+                # convert us to readable format
+                uptime_seconds = server_uptime_us // 1_000_000 if server_uptime_us else 0
+                days = uptime_seconds // 86400
+                hours = (uptime_seconds % 86400) // 3600
+                minutes = (uptime_seconds % 3600) // 60
+                # Format dynamically: include days only if the server has been up for more than 24 hours
+                if uptime_seconds:
+                    server_uptime = (
+                        f"{days}d {hours}h {minutes}m" if days > 0 else f"{hours}h {minutes}m"
+                    )
+                else:
+                    server_uptime = "Offline"
+
                 if client_count == last_client_count and game_count == last_game_count and last_state == "online":
                     time.sleep(POLL_INTERVAL_SEC)
                     continue  # No change in status, skip sending an update
@@ -116,7 +134,7 @@ def poll_server_status():
                     c_name = client.get("Name")
                     if not c_name:
                         continue # Skip clients without a name (e.g., bots or placeholders)
-                    player_string = f"• **{client.get('Name')}** (Lv.{client.get('Level')} {client.get('Class')})"
+                    player_string = f"-   **{client.get('Name')}** (Lv.{client.get('Level')} {client.get('Class')})"
 
                     if c_lobby_id in games_map: # in a game lobby
                         games_map[c_lobby_id]["players"].append(player_string)
@@ -127,27 +145,32 @@ def poll_server_status():
                 embed_fields = {}
 
                 if lobby_players: # is lobby players
-                    field_title = f"Lobby ({len(lobby_players)})"
+                    field_title = f"Lobby"
                     field_value = "\n".join(lobby_players)
                     embed_fields[field_title] = field_value
                 
                 if games_map: # is active games
                     for game_id, game_info in games_map.items():
-                        diff_emoji = DIFFICULTY_EMOJIS.get(game_info['Difficulty'], '❓')
                         diff_short = DIFFICULTY_SHORTHAND.get(game_info['Difficulty'], game_info['Difficulty'])
                         ep_short = EPISODE_SHORTHAND.get(game_info['Episode'], game_info['Episode'])
-                        field_title = f"{game_info['Name']} - *{ep_short} {diff_short}*"
+                        field_title = f"\'{game_info['Name']}\' - *{ep_short} {diff_short}*"
                         if game_info['players']:
                             field_value = "\n".join(game_info['players'])
                         else:
                             field_value = "*• 0 players ($persist lobby)*"
                         embed_fields[field_title] = field_value
 
+                if client_count == 0:
+                    description_str = "Nobody grinding atm. Server schleep... 💤"
+                else:
+                    description_str = ""
+
                 send_to_discord(
-                    title=f"📊 OopsAllMonomates",
-                    description=f"**Uptime**: {server_uptime}",
+                    title=f"📊 Server Uptime: {server_uptime}",
+                    description=f"{description_str}",
                     color="03b2f8",
-                    fields=embed_fields
+                    fields=embed_fields,
+                    target_webhook=STATUS_WEBHOOK_URL
                     )
                 
                 last_client_count = client_count
@@ -214,16 +237,14 @@ async def async_stream_listener():
                         # This matches anything starting with spaces followed by numbers/slashes or a plus sign
                         item_name = re.sub(r'\s+([-+]?\d+[\d/]*|\d+/\d+/\d+/\d+).*$', '', clean_step).strip()
 
-                        print(drop_data)
-                        print(raw_item_name)
-                        print(item_name)
-                        print(f"🚀 Match found! Sending event to Discord: {player} picked up {item_name}")
-                        
                         send_to_discord(
                             title="✨ RARE ITEM FOUND ✨",
                             description=f"**{player}** found **{item_name}**!",
-                            color="ff0000"
+                            color="ff0000",
+                            thumbnail=True,
+                            target_webhook=RARE_DROPS_WEBHOOK_URL
                         )
+                        
                     except json.JSONDecodeError as jde:
                         # This will print the problematic payload layout so we can pinpoint exactly what it didn't like
                         print(f"⚠️ JSON parsing hiccup: {jde} | Raw content: {repr(message)}")
