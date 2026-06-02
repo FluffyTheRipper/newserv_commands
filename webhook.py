@@ -57,7 +57,7 @@ EPISODE_SHORTHAND = {
 
 def send_to_discord(title, description, color="00ff00", fields=None, thumbnail=False, target_webhook=None):
     """Utility to send clean, embedded messages to Discord with automatic rate-limit retries."""
-    RARE_BOX_URL = "https://raw.githubusercontent.com/FluffyTheRipper/newserv_commands/refs/heads/main/redbox.png?token=GHSAT0AAAAAAD4JNB7UQOGBXH4VRKJBMKIC2QYME3Q"
+    RARE_BOX_URL = ""
     webhook = DiscordWebhook(url=target_webhook, rate_limit_retry=True)
     
     embed = DiscordEmbed(title=title, description=description, color=color)
