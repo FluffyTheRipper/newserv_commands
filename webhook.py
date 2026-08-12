@@ -5,7 +5,6 @@ import requests
 import re
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-import websocket
 import asyncio
 import websockets
 from discord_webhook import DiscordWebhook, DiscordEmbed
@@ -29,18 +28,10 @@ SERVER_ENDPOINT = f"{GAME_SERVER_API}/server"
 SUMMARY_ENDPOINT = f"{GAME_SERVER_API}/summary"
 
 # Websocket endpoints
-# RARE_DROPS_STREAM_ENDPOINT = f"{GAME_SERVER_API}/rare-drops/stream"
 RARE_DROPS_STREAM_ENDPOINT = "ws://192.168.1.99:8999/y/rare-drops/stream"  # This will be converted to ws:// in the code
 WS_DROPS_STREAM_ENDPOINT = RARE_DROPS_STREAM_ENDPOINT.replace("http://", "ws://").replace("https://", "wss://")
 
 POLL_INTERVAL_SEC = 30  # Check server status every 30 seconds
-
-DIFFICULTY_EMOJIS = {
-    "Normal": "🟢",
-    "Hard": "🔵",
-    "Very Hard": "🟣",
-    "Ultimate": "🔴"
-}
 
 DIFFICULTY_SHORTHAND = {
     "Normal": "Norm",
@@ -57,7 +48,7 @@ EPISODE_SHORTHAND = {
 
 def send_to_discord(title, description, color="00ff00", fields=None, thumbnail=False, target_webhook=None):
     """Utility to send clean, embedded messages to Discord with automatic rate-limit retries."""
-    RARE_BOX_URL = ""
+    RARE_BOX_URL = "https://raw.githubusercontent.com/FluffyTheRipper/newserv_commands/refs/heads/main/images/redbox.png"
     webhook = DiscordWebhook(url=target_webhook, rate_limit_retry=True)
     
     embed = DiscordEmbed(title=title, description=description, color=color)
@@ -194,6 +185,13 @@ def poll_server_status():
 # --- TASK 2: STREAMING LIVE ITEM DROPS ---
 def start_stream_thread():
     """Wrapper to run our modern async websocket listener inside your existing threading architecture."""
+    send_to_discord(
+        title="🚀 WebSocket Pipeline Activated",
+        description="The WebSocket listener has been initialized and is now streaming live item drops.",
+        color="00ff00",
+        thumbnail=True,
+        target_webhook=RARE_DROPS_WEBHOOK_URL
+    )
     def run_async_loop():
         asyncio.run(async_stream_listener())
         
